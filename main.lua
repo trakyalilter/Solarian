@@ -6,9 +6,9 @@ local viewClass = require("viewClass")
 
 local WIDTH = 0
 local HEIGHT = 0
-
-local GameWidth = 0
-local GameHeight = 0
+local cameraX, cameraY = 0, 0
+local worldWidth = 0
+local worldHeight = 0
 
 -- Minimap settings
 local MINIMAP_WIDTH = 200
@@ -16,6 +16,7 @@ local MINIMAP_HEIGHT = 200
 local MINIMAP_MARGIN = 20 -- Distance from bottom-right corner
 
 local player
+local spaceCraft
 local playerImageScale = 0.075
 local playerX, playerY -- Initial position
 local playerVX, playerVY = 0, 0   -- Velocity components
@@ -85,48 +86,14 @@ function drawMinimap()
 
     -- Draw the player's position on the minimap
     love.graphics.setColor(0, 1, 0) -- Red player dot
-    local playerMinimapX = minimapX + (playerX / WIDTH) * MINIMAP_WIDTH
-    local playerMinimapY = minimapY + (playerY / HEIGHT) * MINIMAP_HEIGHT
+    local playerMinimapX = minimapX + (spaceCraft.x / worldWidth) * MINIMAP_WIDTH
+    local playerMinimapY = minimapY + (spaceCraft.y / worldHeight) * MINIMAP_HEIGHT
     love.graphics.circle("fill", playerMinimapX, playerMinimapY, 3)
     
     -- Reset color after minimap player dot
     love.graphics.setColor(1, 1, 1)
 end
-local function spawnEnemy()
-    enemySpawnInterval = math.random(2,8)
-    local side = math.random(1, 4)
-    local x, y
 
-    if side == 1 then -- Top
-        x = math.random(0, WIDTH)
-        y = -50
-    elseif side == 2 then -- Bottom
-        x = math.random(0, WIDTH)
-        y = HEIGHT+50
-    elseif side == 3 then -- Left
-        x = -50
-        y = math.random(0, HEIGHT)
-    elseif side == 4 then -- Right
-        x = WIDTH+50
-        y = math.random(0, HEIGHT)
-    end
-
-    -- Calculate direction towards the player
-    local dx, dy = playerX - x, playerY - y
-    local length = math.sqrt(dx^2 + dy^2)
-    dx, dy = dx / length, dy / length
-
-    -- Add enemy to the table
-    table.insert(enemies, {
-        x = x,
-        y = y,
-        dx = dx,
-        angle = math.atan2(dy, dx)-math.pi/2,
-        hp = math.random(2,5),
-        dy = dy,
-        speed = math.random(20,60), -- Speed of the enemy
-    })
-end
 local function enemyShootLaser(enemy)
     table.insert(enemyLasers, {
         x = enemy.x,
@@ -165,42 +132,42 @@ local function loadResources()
 end
 -- Function to spawn a meteorite outside the screen
 local function spawnMeteorite()
-    ironAmount = math.random(1, 3)
-    copperAmount = math.random(0, 2)
-    meteorSize = ironAmount+copperAmount
-    local side = math.random(1, 4) -- Choose which side the meteorite spawns from
-    local x, y
+    -- Randomize iron and copper amounts
+    local ironAmount = math.random(1, 3)
+    local copperAmount = math.random(0, 2)
+    local meteorSize = ironAmount + copperAmount
 
-    if side == 1 then -- Top
-        x = math.random(0, WIDTH) -- Random X within the window width
-        y = -50 -- Just above the window
-    elseif side == 2 then -- Bottom
-        x = math.random(0, WIDTH)
-        y = HEIGHT + 50 -- Just below the window
-    elseif side == 3 then -- Left
-        x = -50
-        y = math.random(0, HEIGHT) -- Random Y within the window height
-    elseif side == 4 then -- Right
-        x = WIDTH + 50
-        y = math.random(0, HEIGHT)
-    end
+    -- Generate a random position within the world boundaries
+    local x = math.random(0, worldWidth) -- Anywhere within the world width
+    local y = math.random(0, worldHeight) -- Anywhere within the world height
 
-    -- Calculate direction towards the player's current position
-    local dx, dy = playerX - x, playerY - y
-    local length = math.sqrt(dx^2 + dy^2) -- Normalize the direction vector
-    dx, dy = dx / length, dy / length
-
-    -- Add meteorite to the table
+    -- Add stationary meteorite to the table
     table.insert(meteorites, {
         x = x,
         y = y,
-        dx = dx,
-        dy = dy,
-        speed = 150/meteorSize, -- Speed of the meteorite
-        size = 0.04*(meteorSize)
+        size = 0.04 * meteorSize, -- Scale meteor size
+        iron = ironAmount,
+        copper = copperAmount
     })
 end
+local function spawnEnemy()
 
+    -- Random position within the world
+    local x = math.random(0, worldWidth)
+    local y = math.random(0, worldHeight)
+    -- Initialize enemy
+    table.insert(enemies, {
+        x = x,
+        y = y,
+        dx = 0, -- Movement direction
+        dy = 0,
+        angle = 0, -- Angle for orbiting
+        hp = math.random(2, 5), -- Health points
+        speed = math.random(20, 60), -- Enemy speed
+        state = "idle" -- States: idle, chasing, orbiting
+    })
+
+end
 function love.load()
     
     love.window.setFullscreen(true, "desktop")
@@ -209,8 +176,20 @@ function love.load()
     
     WIDTH =love.graphics.getWidth()
     HEIGHT = love.graphics.getHeight()
-    GameWidth = WIDTH*10
-    GameHeight = HEIGHT*10
+    worldWidth = WIDTH*10
+    worldHeight = HEIGHT*10
+    spaceCraft = {
+        x = worldWidth / 2, -- Starting position
+        y = worldHeight / 2,
+        speed = 300,        -- Max speed
+        acceleration = 500, -- Acceleration rate
+        friction = 0.98,    -- Friction factor
+        vx = 0,             -- Velocity in x
+        vy = 0,             -- Velocity in y
+        angle = 0,          -- Player angle (in radians)
+        width = 50,
+        height = 50
+    }
     playerX, playerY = WIDTH/2,HEIGHT/2
     love.graphics.setBackgroundColor(0.1, 0.1, 0.1)
     player = love.graphics.newImage("Images/player.png")
@@ -237,6 +216,12 @@ function love.load()
     
     selectedView = MainView
 
+    for i = 1, 300 do -- Adjust '50' to spawn more or fewer meteors
+        spawnMeteorite()
+    end
+    for i = 1, 350 do -- Adjust '50' to spawn more or fewer meteors
+        spawnEnemy()
+    end
 end
 function love.keypressed(key, unicode)
     if key == "i" then
@@ -267,19 +252,50 @@ function love.update(dt)
             end
         end
         local inputX, inputY = 0, 0 -- Input direction
+        local ax, ay = 0, 0 -- Acceleration in x and y
         -- Handle input for acceleration
         if love.keyboard.isDown("up") or love.keyboard.isDown("w") then
-            inputY = inputY - 1
+            -- inputY = inputY - 1
+            ay = -1
         end
         if love.keyboard.isDown("down") or love.keyboard.isDown("s") then
-            inputY = inputY + 1
+            
+            ay = 1
         end
         if love.keyboard.isDown("left") or love.keyboard.isDown("a") then
-            inputX = inputX - 1
+            ax = -1
         end
         if love.keyboard.isDown("right") or love.keyboard.isDown("d") then
-            inputX = inputX + 1
+            ax = 1
         end
+        -- Apply acceleration to velocity
+        spaceCraft.vx = spaceCraft.vx + ax * spaceCraft.acceleration * dt
+        spaceCraft.vy = spaceCraft.vy + ay * spaceCraft.acceleration * dt
+
+        -- Apply friction to velocity
+        spaceCraft.vx = spaceCraft.vx * spaceCraft.friction
+        spaceCraft.vy = spaceCraft.vy * spaceCraft.friction
+
+        -- Update spaceCraft position
+        spaceCraft.x = spaceCraft.x + spaceCraft.vx * dt
+        spaceCraft.y = spaceCraft.y + spaceCraft.vy * dt
+
+        -- Clamp position within the game world
+        spaceCraft.x = math.max(0, math.min(spaceCraft.x, worldWidth - spaceCraft.width))
+        spaceCraft.y = math.max(0, math.min(spaceCraft.y, worldHeight - spaceCraft.height))
+
+        -- Update spaceCraft's angle based on velocity
+        if spaceCraft.vx ~= 0 or spaceCraft.vy ~= 0 then
+            spaceCraft.angle = math.atan2(spaceCraft.vy, spaceCraft.vx)
+        end
+
+        -- Update Camera to center the spaceCraft
+        cameraX = spaceCraft.x - WIDTH / 2
+        cameraY = spaceCraft.y - HEIGHT / 2
+
+        -- Clamp camera to prevent seeing outside the game world
+        cameraX = math.max(0, math.min(cameraX, worldWidth - WIDTH))
+        cameraY = math.max(0, math.min(cameraY, worldHeight - HEIGHT))
         --Notification
         for i = #notifications, 1, -1 do
             local n = notifications[i]
@@ -320,44 +336,41 @@ function love.update(dt)
             playerVY = playerVY / velocityLength * playerSpeed
         end
 
-        -- Update player position
+        -- Update spaceCraft position
         playerX = playerX + playerVX * dt
         playerY = playerY + playerVY * dt
 
-        -- Update player angle based on velocity direction
+        -- Update spaceCraft angle based on velocity direction
         if velocityLength > 0 then
             playerAngle = math.atan2(playerVY, playerVX)*180/math.pi -- Angle in radians
         end
     
 
         -- Spawn meteorites at intervals
-        spawnTimer = spawnTimer + dt
-        if spawnTimer >= 4 then
-            spawnMeteorite()
-            spawnTimer = 0
-        end
+        -- spawnTimer = spawnTimer + dt
+        -- if spawnTimer >= 4 then
+        --     spawnMeteorite()
+        --     spawnTimer = 0
+        -- end
 
         -- Spawn enemies at intervals
-        enemySpawnTimer = enemySpawnTimer + dt
-        if enemySpawnTimer >= enemySpawnInterval then
-            spawnEnemy()
-            enemySpawnTimer = 0
-        end
+        -- enemySpawnTimer = enemySpawnTimer + dt
+        -- if enemySpawnTimer >= enemySpawnInterval then
+        --     spawnEnemy()
+        --     enemySpawnTimer = 0
+        -- end
 
         -- Update meteorites
         for i = #meteorites, 1, -1 do
             local m = meteorites[i]
-            m.x = m.x + m.dx * m.speed * dt
-            m.y = m.y + m.dy * m.speed * dt
-
-            -- Check collision with player
+            -- Check collision with spaceCraft
             local playerWidth, playerHeight = player:getWidth() * playerImageScale, player:getHeight() * playerImageScale
             local meteoriteWidth, meteoriteHeight = meteorite:getWidth() * 0.1, meteorite:getHeight() * 0.1
 
-            if m.x < playerX + playerWidth / 2 and
-               m.x + meteoriteWidth > playerX - playerWidth / 2 and
-               m.y < playerY + playerHeight / 2 and
-               m.y + meteoriteHeight > playerY - playerHeight / 2 then
+            if m.x < spaceCraft.x + playerWidth / 2 and
+               m.x + meteoriteWidth > spaceCraft.x - playerWidth / 2 and
+               m.y < spaceCraft.y + playerHeight / 2 and
+               m.y + meteoriteHeight > spaceCraft.y - playerHeight / 2 then
                 table.remove(meteorites, i)
 
                 iron = iron + ironAmount
@@ -379,7 +392,7 @@ function love.update(dt)
             local d = dropBoxes[i]
             
 
-            -- Check collision with player
+            -- Check collision with spaceCraft
             local playerWidth, playerHeight = player:getWidth() * playerImageScale, player:getHeight() * playerImageScale
             local dropboxWidth, dropboxHeight = dropbox:getWidth() * 0.05, dropbox:getHeight() * 0.05
             local str =d.x .. d.y
@@ -395,35 +408,35 @@ function love.update(dt)
         end
         
         -- Update enemies
-        for i = #enemies, 1, -1 do
-            local e = enemies[i]
+        for _, enemy in ipairs(enemies) do
+            local distanceToPlayer = math.sqrt((enemy.x - spaceCraft.x)^2 + (enemy.y - spaceCraft.y)^2)
 
-            -- Recalculate the direction towards the player
-            local dx, dy = playerX - e.x, playerY - e.y
-            local length = math.sqrt(dx^2 + dy^2)
-            dx, dy = dx / length, dy / length
+            -- State transitions
+            if distanceToPlayer <= 500 and enemy.state ~= "orbiting" then
+                -- Move towards the player
+                enemy.state = "chasing"
+                local dx, dy = spaceCraft.x - enemy.x, spaceCraft.y - enemy.y
+                local length = math.sqrt(dx^2 + dy^2)
+                enemy.dx = dx / length
+                enemy.dy = dy / length
+            end
+            
+            if distanceToPlayer <= 100 then
+                -- Orbit around the player
+                enemy.state = "orbiting"
+                enemy.orbitAngle = math.atan2(enemy.y - spaceCraft.y, enemy.x - spaceCraft.x)
+                enemy.orbitSpeed = math.pi -- Orbit speed (radians per second)
+            end
 
-            -- Update the enemy's direction and angle
-            e.dx = dx
-            e.dy = dy
-            e.angle = math.atan2(dy, dx) - math.pi / 2
-
-            -- Move the enemy towards the player
-            e.x = e.x + e.dx * e.speed * dt
-            e.y = e.y + e.dy * e.speed * dt
-
-            -- Check collision with the player
-            local playerWidth, playerHeight = player:getWidth() * playerImageScale, player:getHeight() * playerImageScale
-            local enemyWidth, enemyHeight = enemyImage:getWidth() * 0.1, enemyImage:getHeight() * 0.1
-
-            if e.x < playerX + playerWidth / 2 and
-            e.x + enemyWidth > playerX - playerWidth / 2 and
-            e.y < playerY + playerHeight / 2 and
-            e.y + enemyHeight > playerY - playerHeight / 2 then
-                playerHealth = playerHealth-10
-				if playerHealth < 1 then
-					love.event.quit()
-				end
+            -- Behavior based on state
+            if enemy.state == "chasing" then
+                enemy.x = enemy.x + enemy.dx * enemy.speed * dt
+                enemy.y = enemy.y + enemy.dy * enemy.speed * dt
+            elseif enemy.state == "orbiting" then
+                -- Circular orbit logic
+                enemy.orbitAngle = enemy.orbitAngle + enemy.orbitSpeed * dt
+                enemy.x = spaceCraft.x + 100 * math.cos(enemy.orbitAngle)
+                enemy.y = spaceCraft.y + 100 * math.sin(enemy.orbitAngle)
             end
         end
 
@@ -557,6 +570,30 @@ function love.draw()
         love.graphics.setColor(1, 1, 1)
         love.graphics.print("Shop", 10, 10)
     elseif selectedView == MainView then
+        love.graphics.push()
+        love.graphics.translate(-cameraX, -cameraY)
+            -- Draw the game world (background)
+        love.graphics.setColor(0.2, 0.2, 0.2) -- Gray background
+        love.graphics.rectangle("fill", 0, 0, worldWidth, worldHeight)
+
+        -- Draw the player
+        love.graphics.setColor(1, 1, 1) -- Red player
+        love.graphics.draw(player, spaceCraft.x, spaceCraft.y, spaceCraft.angle+math.pi/2, playerImageScale, playerImageScale, player:getWidth() / 2, player:getHeight() / 2)
+        -- love.graphics.rectangle("fill", spaceCraft.x, spaceCraft.y, spaceCraft.width, spaceCraft.height)
+
+        -- Draw meteorites
+        for _, m in ipairs(meteorites) do
+            love.graphics.draw(meteorite, m.x, m.y, 0, m.size, m.size,meteorite:getWidth() / 2, meteorite:getHeight() / 2)
+        end
+                -- Draw enemies
+        for _, enemy in ipairs(enemies) do
+            love.graphics.draw(enemyImage, enemy.x, enemy.y, 0, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
+        end
+        love.graphics.pop()
+
+        -- HUD (not affected by camera)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.print("Player Position: (" .. math.floor(spaceCraft.x) .. ", " .. math.floor(spaceCraft.y) .. ")", 10, 10)
         -- Draw notifications at the top-center of the screen
         local screenWidth = love.graphics.getWidth()
         for i, n in ipairs(notifications) do
@@ -567,7 +604,7 @@ function love.draw()
         love.graphics.setColor(1, 1, 1) -- Reset color
         -- Draw Game View
         -- Draw player
-        love.graphics.draw(player, playerX, playerY, ((90+playerAngle)*math.pi/180), playerImageScale, playerImageScale, player:getWidth() / 2, player:getHeight() / 2)
+        -- love.graphics.draw(player, playerX, playerY, ((90+playerAngle)*math.pi/180), playerImageScale, playerImageScale, player:getWidth() / 2, player:getHeight() / 2)
         for i=1,playerHealth do
             love.graphics.draw(healthBarGreen,(playerX-40)+(8*(i-1)),playerY-65,0,0.05,0.3)
 
@@ -575,23 +612,7 @@ function love.draw()
         for i=1,playerShield do
         love.graphics.draw(shieldBar,(playerX-40)+(8*(i-1)),playerY-75,0,0.05,0.3)
         end
-        -- Draw meteorites
-        for _, m in ipairs(meteorites) do
-            love.graphics.draw(meteorite, m.x, m.y, 0, m.size, m.size, meteorite:getWidth() / 2, meteorite:getHeight() / 2)
-        end
-        -- Draw enemies
-        for _, e in ipairs(enemies) do
-            local value = 15
-            for i=1,e.hp do
-                love.graphics.draw(healthBarRed,(e.x+(value*(i-1))-25),e.y-45,0,0.1,0.3)
-            end
-            
-            -- love.graphics.draw(healthBarRed,e.x,e.y-45,0,0.1,0.3)
-            -- love.graphics.draw(healthBarRed,e.x-15,e.y-45,0,0.1,0.3)
-            -- love.graphics.draw(healthBarRed,e.x-30,e.y-45,0,0.1,0.3)
 
-            love.graphics.draw(enemyImage, e.x, e.y, e.angle, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
-        end
         -- Draw lasers
         for _, laser in ipairs(lasers) do
             love.graphics.draw(laserImage, laser.x, laser.y,laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
