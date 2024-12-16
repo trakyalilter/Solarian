@@ -6,11 +6,13 @@ local data = {}
 local resourcesSaveFile = "resources.json"
 local sectorsSaveFile = "sectors.json"
 -- Save resources function
-function data.saveResources(iron, copper)
+function data.saveResources(iron, copper,coin,gold)
     -- Convert the data table to JSON
     local jsonData = json.encode({
         iron = iron,
         copper = copper,
+        coin = coin,
+        gold = gold
     })
 
     -- Write the JSON data to a file
@@ -28,7 +30,7 @@ function data.saveSectors(sectors)
 end
 -- Load resources function
 function data.loadResources()
-    local iron, copper = 0, 0  -- Default values
+    local iron, copper, coin,gold = 0, 0,0,0  -- Default values
     
     -- Check if the file exists
     if love.filesystem.getInfo(resourcesSaveFile) then
@@ -42,6 +44,8 @@ function data.loadResources()
         if loadedData then
             iron = loadedData.iron or 0
             copper = loadedData.copper or 0
+            coin = loadedData.coin or 0
+            gold = loadedData.gold or 0
             print("Resources loaded!")
         else
             print("Failed to load resources!")
@@ -50,7 +54,7 @@ function data.loadResources()
         print("No save file found!")
     end
 
-    return iron, copper
+    return iron, copper,coin,gold
 end
 
 function  data.loadSectors()

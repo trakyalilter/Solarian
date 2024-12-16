@@ -28,20 +28,23 @@ local meteorite
 local ironAmount = 1
 local copperAmount = 0
 local meteorSize
-local playerHealth = 10 -- <3 aşkıma torpil
+local playerHealth = 10
 local playerShield = 10
 local iron = 0 -- Player's stored iron amount
 local copper = 0 -- Player's stored copper amount
 local coin = 0
+local gold = 0
 local sectors = {} -- Table to store sectors
-local selectedSector = "Sector-1"
+local selectedSector = "Sector:1-1"
 local meteorites = {} -- Table to store meteorites
+local goldMeteorites = {}
 local spawnTimer = 0 -- Timer to control meteorite spawning
 local enemyImage
 local enemySpawnInterval = math.random(4,7)
 local enemies = {} -- Table to store enemies
 local laserImage
 local lasers = {} -- Table to store lasers
+local collectorLasers = {} -- Table to store collector Lasers
 local enemySpawnTimer = 0 -- Timer to control enemy spawning
 
 local enemyLaserTimer = 0 -- Timer for enemy laser shooting
@@ -80,7 +83,9 @@ function drawMinimap()
     -- Minimap position and size
     local minimapX = WIDTH - MINIMAP_WIDTH - MINIMAP_MARGIN
     local minimapY = HEIGHT - MINIMAP_HEIGHT - MINIMAP_MARGIN
-
+    
+    love.graphics.print(selectedSector, minimapX,minimapY-20)
+    love.graphics.print("(" .. math.floor(spaceCraft.x) .. ", " .. math.floor(spaceCraft.y) .. ")", minimapX+MINIMAP_WIDTH-75, minimapY-20)
     -- Draw the minimap background
     love.graphics.setColor(0, 0, 0, 0.6) -- Black background
     love.graphics.rectangle("fill", minimapX, minimapY, MINIMAP_WIDTH, MINIMAP_HEIGHT)
@@ -93,7 +98,13 @@ function drawMinimap()
     local playerMinimapX = minimapX + (spaceCraft.x / worldWidth) * MINIMAP_WIDTH
     local playerMinimapY = minimapY + (spaceCraft.y / worldHeight) * MINIMAP_HEIGHT
     love.graphics.circle("fill", playerMinimapX, playerMinimapY, 3)
-    love.graphics.setColor(1, 0, 0) -- Green player dot
+    love.graphics.setColor(186/255, 171/255, 60/255) -- Green player dot
+    for i,goldMeteorite in ipairs(goldMeteorites) do
+        local goldMeteoriteMinimapX = minimapX + (goldMeteorite.x / worldWidth) * MINIMAP_WIDTH
+        local goldMeteoriteMinimapY = minimapY + (goldMeteorite.y / worldHeight) * MINIMAP_HEIGHT
+        love.graphics.circle("fill", goldMeteoriteMinimapX, goldMeteoriteMinimapY, 2)
+    end
+    love.graphics.setColor(1, 0, 0) -- Red Enemy dot
     for i, enemy in ipairs(enemies) do
         local enemyMinimapX = minimapX + (enemy.x / worldWidth) * MINIMAP_WIDTH
         local enemyMinimapY = minimapY + (enemy.y / worldHeight) * MINIMAP_HEIGHT
@@ -101,6 +112,39 @@ function drawMinimap()
     end
     -- Reset color after minimap player dot
     love.graphics.setColor(1, 1, 1)
+    local baseMinimapX = minimapX +((baseZoneX/2)/worldWidth) * MINIMAP_WIDTH
+    local baseMinimapY = minimapY +((baseZoneY/2)/worldHeight) * MINIMAP_HEIGHT
+    local scale = 0.02
+    local offsetX = images.spacePortImage:getWidth() * scale / 2
+    local offsetY = images.spacePortImage:getHeight() * scale / 2
+
+    love.graphics.draw(
+        images.spacePortImage,
+        baseMinimapX,
+        baseMinimapY,
+        0,               -- Rotation
+        scale,           -- Scale X
+        scale,           -- Scale Y
+        offsetX,         -- Corrected Origin X (half width after scaling)
+        offsetY          -- Corrected Origin Y (half height after scaling)
+    )
+
+    local baseMinimapXP = minimapX +((worldWidth-1000)/worldWidth) * MINIMAP_WIDTH
+    local baseMinimapYP = minimapY +((worldHeight-1000)/worldHeight) * MINIMAP_HEIGHT
+    local scalePortal = 0.02
+    local offsetXP = images.portalImage:getWidth() * scale / 2
+    local offsetYP = images.portalImage:getHeight() * scale / 2
+
+    love.graphics.draw(
+        images.portalImage,
+        baseMinimapXP,
+        baseMinimapYP,
+        0,               -- Rotation
+        scalePortal,           -- Scale X
+        scalePortal,           -- Scale Y
+        offsetXP,         -- Corrected Origin X (half width after scaling)
+        offsetUP          -- Corrected Origin Y (half height after scaling)
+    )
 end
 
 local function enemyShootLaser(enemy)
@@ -115,7 +159,7 @@ local function enemyShootLaser(enemy)
 end
 -- Function to save resources to a file
 local function saveResources()
-   data.saveResources(iron, copper)
+   data.saveResources(iron,copper,coin,gold)
 end
 
 local function saveSectors()
@@ -126,7 +170,7 @@ local function loadSectors()
 end
 -- Function to load resources from the file
 local function loadResources()
-        iron,copper = data.loadResources()
+        iron,copper,coin,gold = data.loadResources()
 end
 -- Function to spawn a meteorite outside the screen
 local function spawnMeteorite()
@@ -135,22 +179,46 @@ local function spawnMeteorite()
     local copperAmount = math.random(0, 2)
     local meteorSize = ironAmount + copperAmount
 
-    local x, y
+    local x, y,angle
 
     -- Random position, avoid the restricted rectangle (0, 0) to (1000, 1000)
     repeat
         x = math.random(0, worldWidth)
         y = math.random(0, worldHeight)
     until not (x >= 0 and x <= baseZoneX+1000 and y >= 0 and y <= baseZoneY+1000)
-
+        angle = math.random(0,360)/(math.pi*180)
     -- Add stationary meteorite to the table
     table.insert(meteorites, {
         x = x,
         y = y,
+        angle = angle,
         size = 0.04 * meteorSize, -- Scale meteor size
         iron = ironAmount,
         copper = copperAmount
     })
+end
+local function spawnGoldMeteorite()
+        -- Randomize iron and copper amounts
+        local goldAmount = math.random(5, 10)
+        
+        local meteorSize = goldAmount
+    
+        local x, y,angle
+    
+        -- Random position, avoid the restricted rectangle (0, 0) to (1000, 1000)
+        repeat
+            x = math.random(0, worldWidth)
+            y = math.random(0, worldHeight)
+        until not (x >= 0 and x <= baseZoneX+1000 and y >= 0 and y <= baseZoneY+1000)
+            angle = math.random(0,360)*math.pi/180
+        -- Add stationary meteorite to the table
+        table.insert(goldMeteorites, {
+            x = x,
+            y = y,
+            angle = angle,
+            size = 0.04 * meteorSize, -- Scale meteor size
+            gold = goldAmount
+        })
 end
 local function spawnEnemy()
     local x, y
@@ -184,10 +252,11 @@ function love.load()
     HEIGHT = love.graphics.getHeight()
     worldWidth = WIDTH*10
     worldHeight = HEIGHT*10
+    love.graphics.draw(images.backgroundImage, worldWidth/2, worldHeight/2,0,1,1,images.backgroundImage:getWidth()/2,images.backgroundImage:getHeight()/2)
     baseZoneX,baseZoneY = 1000,1000
     spaceCraft = {
-        x = worldWidth / 2, -- Starting position
-        y = worldHeight / 2,
+        x = 500, -- Starting position
+        y = 500,
         speed = 300,        -- Max speed
         acceleration = 200, -- Acceleration rate
         friction = 0.98,    -- Friction factor
@@ -198,7 +267,7 @@ function love.load()
         height = 50
     }
     playerX, playerY = WIDTH/2,HEIGHT/2
-    love.graphics.setBackgroundColor(0.1, 0.1, 0.1)
+    
     player = love.graphics.newImage("Images/player.png")
     meteorite = love.graphics.newImage("Images/meteorite.png")
     enemyImage = love.graphics.newImage("Images/enemy.png")
@@ -223,6 +292,9 @@ function love.load()
     
     selectedView = MainView
 
+    for i = 1,5 do
+        spawnGoldMeteorite()
+    end
     for i = 1, 300 do -- Adjust '50' to spawn more or fewer meteors
         spawnMeteorite()
     end
@@ -441,7 +513,7 @@ function love.update(dt)
                 enemy.dx = dx / length
                 enemy.dy = dy / length
 
-            elseif distanceToPlayer <= 400 then
+            elseif distanceToPlayer <= 450 then
                 -- Orbit around the player
                 enemy.state = "orbiting"
                 enemy.orbitAngle = math.atan2(enemy.y - spaceCraft.y, enemy.x - spaceCraft.x)
@@ -467,8 +539,8 @@ function love.update(dt)
             elseif enemy.state == "orbiting" then
                 -- Circular orbit logic
                 enemy.orbitAngle = enemy.orbitAngle + enemy.orbitSpeed * dt
-                enemy.x = spaceCraft.x + 400 * math.cos(enemy.orbitAngle)
-                enemy.y = spaceCraft.y + 400 * math.sin(enemy.orbitAngle)
+                enemy.x = spaceCraft.x + 450 * math.cos(enemy.orbitAngle)
+                enemy.y = spaceCraft.y + 450 * math.sin(enemy.orbitAngle)
 
             elseif enemy.state == "wandering" then
                 -- Wandering patrol movement
@@ -567,9 +639,37 @@ function love.update(dt)
                 end
             end
         end
+        for i = #collectorLasers, 1, -1 do
+            local collectorlaser = collectorLasers[i]
+            collectorlaser.x = collectorlaser.x + collectorlaser.dx * collectorlaser.speed * dt
+            collectorlaser.y = collectorlaser.y + collectorlaser.dy * collectorlaser.speed * dt
+
+            -- Remove lasers if offscreen
+            if collectorlaser.x < 0 or collectorlaser.x > worldWidth or collectorlaser.y < 0 or collectorlaser.y > worldHeight then
+                table.remove(lasers, i)
+            else
+                -- Check collision with goldMeteorite
+                local laserWidth, laserHeight = laserImage:getWidth() * 0.1, laserImage:getHeight() * 0.1
+                for j = #goldMeteorites, 1, -1 do
+                    local e = goldMeteorites[j]
+                    local enemyWidth, enemyHeight = enemyImage:getWidth() * 0.1, enemyImage:getHeight() * 0.1
+        
+                    if collectorlaser.x < e.x + enemyWidth / 2 and
+                    collectorlaser.x + laserWidth > e.x - enemyWidth / 2 and
+                    collectorlaser.y < e.y + enemyHeight / 2 and
+                    collectorlaser.y + laserHeight > e.y - enemyHeight / 2 then
+                        table.remove(collectorLasers, i)
+                        table.remove(goldMeteorites, j)
+                        gold = gold + e.gold
+                        break  -- Stop checking other enemies for this laser
+                    end
+                end
+            end
+        end
     end
 end
 function love.draw()
+    
     -- love.graphics.setFont(font)
     if selectedView == MapView then
 
@@ -618,12 +718,18 @@ function love.draw()
         love.graphics.setColor(1, 1, 1)
         love.graphics.print("Shop", 10, 10)
     elseif selectedView == MainView then
+
         love.graphics.push()
         love.graphics.translate(-cameraX, -cameraY)
             -- Draw the game world (background)
         love.graphics.setColor(0.2, 0.2, 0.2) -- Gray background
         love.graphics.rectangle("fill", 0, 0, worldWidth, worldHeight)
         love.graphics.setColor(1, 1, 1) -- Reset Colors
+        for i = 0, worldWidth / images.backgroundImage:getWidth() do
+            for j = 0, worldHeight / images.backgroundImage:getHeight() do
+                love.graphics.draw(images.backgroundImage, i * images.backgroundImage:getWidth(), j * images.backgroundImage:getHeight())
+            end
+        end
         -- Draw the spacePort
         love.graphics.draw(images.spacePortImage, baseZoneX/2, baseZoneY/2,0,0.5,0.5,images.spacePortImage:getWidth()/2,images.spacePortImage:getHeight()/2)
         --Draw the Portal 
@@ -636,15 +742,16 @@ function love.draw()
         drawSpacecraftLasers()
         -- Draw meteorites
         for _, m in ipairs(meteorites) do
-            love.graphics.draw(meteorite, m.x, m.y, 0, m.size, m.size,meteorite:getWidth() / 2, meteorite:getHeight() / 2)
+            love.graphics.draw(meteorite, m.x, m.y, m.angle, m.size, m.size,meteorite:getWidth() / 2, meteorite:getHeight() / 2)
         end
+        drawGoldMeteorite()
                 -- Draw enemies
         for _, enemy in ipairs(enemies) do
             local value = 15
             for i=1,enemy.hp do
                 love.graphics.draw(healthBarRed,(enemy.x+(value*(i-1))-25),enemy.y-45,0,0.1,0.3)
             end
-            love.graphics.draw(enemyImage, enemy.x, enemy.y, 0, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
+            love.graphics.draw(enemyImage, enemy.x, enemy.y, math.atan2(enemy.dy, enemy.dx)-math.pi/2, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
         end
         -- Draw enemy lasers
         for _, laser in ipairs(enemyLasers) do
@@ -672,7 +779,7 @@ function love.draw()
 
         -- HUD (not affected by camera)
         love.graphics.setColor(1, 1, 1)
-        love.graphics.print("Player Position: (" .. math.floor(spaceCraft.x) .. ", " .. math.floor(spaceCraft.y) .. ")", 10, 10)
+
         -- Draw notifications at the top-center of the screen
         local screenWidth = love.graphics.getWidth()
         for i, n in ipairs(notifications) do
@@ -685,26 +792,24 @@ function love.draw()
         -- Draw player
         -- love.graphics.draw(player, playerX, playerY, ((90+playerAngle)*math.pi/180), playerImageScale, playerImageScale, player:getWidth() / 2, player:getHeight() / 2)
         for i=1,playerHealth do
-            love.graphics.draw(healthBarGreen,(playerX-40)+(8*(i-1)),playerY-65,0,0.05,0.3)
+            love.graphics.draw(images.healthBarTick,(playerX-45)+(10*(i-1)),playerY-65,0,0.05,0.05)
 
         end
         for i=1,playerShield do
-        love.graphics.draw(shieldBar,(playerX-40)+(8*(i-1)),playerY-75,0,0.05,0.3)
+        love.graphics.draw(images.blueShieldTick,(playerX-45)+(10*(i-1)),playerY-80,0,0.05,0.05)
+        -- love.graphics.draw(shieldBar,(playerX-40)+(8*(i-1)),playerY-75,0,0.05,0.3)
         end
-
-        -- -- Draw lasers
-        -- for _, laser in ipairs(lasers) do
-        --     love.graphics.draw(laserImage, laser.x, laser.y,laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
-        -- end
-
-        love.graphics.print("Coin: " .. coin, 10, 40)
-
-
         drawMinimap()
-
-        
     end
 
+end
+function  drawGoldMeteorite()
+    -- Draw meteorites
+    for _, m in ipairs(goldMeteorites) do
+        love.graphics.setColor(186/255, 171/255, 60/255)
+        love.graphics.draw(meteorite, m.x, m.y, m.angle, m.size, m.size,meteorite:getWidth() / 2, meteorite:getHeight() / 2)
+    end
+    love.graphics.setColor(1,1,1)
 end
 function drawSpacecraftLasers()
     for _, laser in ipairs(lasers) do
@@ -714,6 +819,15 @@ function drawSpacecraftLasers()
             laser.angle, 
             0.05, 0.05, 
             laserImage:getWidth() / 2, laserImage:getHeight() / 2
+        )
+    end
+    for _, laser in ipairs(collectorLasers) do
+        love.graphics.draw(
+            images.collectorLaserImage, 
+            laser.x, laser.y, 
+            laser.angle, 
+            0.05, 0.05, 
+            images.collectorLaserImage:getWidth() / 2, images.collectorLaserImage:getHeight() / 2
         )
     end
 end
@@ -733,8 +847,11 @@ function drawInventory()
 
     -- Inventory items
     local items = {
+        { name = "Coin", amount = coin,image = images.coinImage },
         { name = "Iron", amount = iron,image = images.ironIngotImage },
         { name = "Copper", amount = copper,image = images.copperIngotImage },
+        { name = "Gold", amount = gold,image = images.goldImage },
+
         -- Add more items here dynamically if needed
     }
 
@@ -755,7 +872,7 @@ function drawInventory()
                 -- Draw the item's name and quantity
                 love.graphics.print(item.name, x + 5, y + 5)
                 love.graphics.print("x" .. tostring(item.amount), x + 5, y + 25)
-                love.graphics.draw(item.image,x+100,y+125,0,0.1,0.1,item.image:getWidth()/2,item.image:getHeight()/2)
+                love.graphics.draw(item.image,x+100,y+125,0,0.25,0.25,item.image:getWidth()/2,item.image:getHeight()/2)
             end
         end
     end
@@ -805,6 +922,24 @@ function love.mousepressed(x, y, button)
                     end
                 end
             end
+        end
+    end
+    if button == 2 then
+        if MainView then
+            local angle = math.atan2(y+cameraY - spaceCraft.y, x+cameraX - spaceCraft.x)
+            local dx = math.cos(angle)
+            local dy = math.sin(angle)
+            local laser_angle = angle
+            -- Add a new laser to the lasers table
+            table.insert(collectorLasers, {
+                x = spaceCraft.x,
+                y = spaceCraft.y,
+                r = laser_angle,
+                dx = dx,
+                dy = dy,
+                angle = angle,
+                speed = 500, -- Speed of the laser
+            })
         end
     end
 end
