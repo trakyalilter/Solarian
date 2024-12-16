@@ -45,7 +45,9 @@ local lasers = {} -- Table to store lasers
 local enemySpawnTimer = 0 -- Timer to control enemy spawning
 
 local enemyLaserTimer = 0 -- Timer for enemy laser shooting
-local enemyLasers = {} -- Table for storing lasers shot by enemies
+local enemyLasers = {}
+local laserCooldown = 1 -- Time between laser shots for enemies
+local laserTimer = 0
 local dropBoxes = {}
 local dropbox
 local lastDestroyedX, lastDestroyedY = -1,-1
@@ -68,6 +70,8 @@ local inventorySlotImage
 
 local notifications = {}
 
+
+local baseZoneX,baseZoneY = 0,0
 -- Function to add a notification message
 local function addNotification(message, duration)
     table.insert(notifications, { text = message, timer = duration })
@@ -85,11 +89,16 @@ function drawMinimap()
     love.graphics.setColor(1, 1, 1)
 
     -- Draw the player's position on the minimap
-    love.graphics.setColor(0, 1, 0) -- Red player dot
+    love.graphics.setColor(0, 1, 0) -- Green player dot
     local playerMinimapX = minimapX + (spaceCraft.x / worldWidth) * MINIMAP_WIDTH
     local playerMinimapY = minimapY + (spaceCraft.y / worldHeight) * MINIMAP_HEIGHT
     love.graphics.circle("fill", playerMinimapX, playerMinimapY, 3)
-    
+    love.graphics.setColor(1, 0, 0) -- Green player dot
+    for i, enemy in ipairs(enemies) do
+        local enemyMinimapX = minimapX + (enemy.x / worldWidth) * MINIMAP_WIDTH
+        local enemyMinimapY = minimapY + (enemy.y / worldHeight) * MINIMAP_HEIGHT
+        love.graphics.circle("fill", enemyMinimapX, enemyMinimapY, 2)
+    end
     -- Reset color after minimap player dot
     love.graphics.setColor(1, 1, 1)
 end
@@ -101,17 +110,6 @@ local function enemyShootLaser(enemy)
         angle = math.atan2(playerY - enemy.y, playerX - enemy.x),
         dx = playerX - enemy.x,
         dy = playerY - enemy.y,
-        speed = 400,
-    })
-end
--- Function to shoot a laser
-local function shootLaser()
-    table.insert(lasers, {
-        x = playerX,
-        y = playerY,
-        r = ((90+playerAngle)*math.pi/180),
-        dx = 0, -- Lasers travel straight up
-        dy = -1,
         speed = 400,
     })
 end
@@ -137,9 +135,13 @@ local function spawnMeteorite()
     local copperAmount = math.random(0, 2)
     local meteorSize = ironAmount + copperAmount
 
-    -- Generate a random position within the world boundaries
-    local x = math.random(0, worldWidth) -- Anywhere within the world width
-    local y = math.random(0, worldHeight) -- Anywhere within the world height
+    local x, y
+
+    -- Random position, avoid the restricted rectangle (0, 0) to (1000, 1000)
+    repeat
+        x = math.random(0, worldWidth)
+        y = math.random(0, worldHeight)
+    until not (x >= 0 and x <= baseZoneX+1000 and y >= 0 and y <= baseZoneY+1000)
 
     -- Add stationary meteorite to the table
     table.insert(meteorites, {
@@ -151,10 +153,14 @@ local function spawnMeteorite()
     })
 end
 local function spawnEnemy()
+    local x, y
 
-    -- Random position within the world
-    local x = math.random(0, worldWidth)
-    local y = math.random(0, worldHeight)
+    -- Random position, avoid the restricted rectangle (0, 0) to (1000, 1000)
+    repeat
+        x = math.random(0, worldWidth)
+        y = math.random(0, worldHeight)
+    until not (x >= 0 and x <= baseZoneX+1500 and y >= 0 and y <= baseZoneY+1500)
+
     -- Initialize enemy
     table.insert(enemies, {
         x = x,
@@ -166,8 +172,8 @@ local function spawnEnemy()
         speed = math.random(20, 60), -- Enemy speed
         state = "idle" -- States: idle, chasing, orbiting
     })
-
 end
+
 function love.load()
     
     love.window.setFullscreen(true, "desktop")
@@ -178,11 +184,12 @@ function love.load()
     HEIGHT = love.graphics.getHeight()
     worldWidth = WIDTH*10
     worldHeight = HEIGHT*10
+    baseZoneX,baseZoneY = 1000,1000
     spaceCraft = {
         x = worldWidth / 2, -- Starting position
         y = worldHeight / 2,
         speed = 300,        -- Max speed
-        acceleration = 500, -- Acceleration rate
+        acceleration = 200, -- Acceleration rate
         friction = 0.98,    -- Friction factor
         vx = 0,             -- Velocity in x
         vy = 0,             -- Velocity in y
@@ -219,7 +226,7 @@ function love.load()
     for i = 1, 300 do -- Adjust '50' to spawn more or fewer meteors
         spawnMeteorite()
     end
-    for i = 1, 350 do -- Adjust '50' to spawn more or fewer meteors
+    for i = 1, 30 do -- Adjust '50' to spawn more or fewer meteors
         spawnEnemy()
     end
 end
@@ -242,8 +249,20 @@ function love.keypressed(key, unicode)
         return
     end
 end
+local insideBaseZone = false
+local function checkPlayerInsideBase()
+    if spaceCraft.x>0 and spaceCraft.x<baseZoneX and spaceCraft.y>0 and spaceCraft.y<baseZoneY and (not insideBaseZone) then
+        insideBaseZone = true
+        addNotification("You are inside the base.",3)
+    elseif spaceCraft.x>baseZoneX and spaceCraft.y>baseZoneY and insideBaseZone then
+        insideBaseZone = false
+        addNotification("You are leaving the base.",3)
+    end
+
+end
 function love.update(dt)
     if selectedView == MainView then
+        checkPlayerInsideBase()
         if playerShield < 10 then
             shieldRefillTimer = shieldRefillTimer + dt
             if shieldRefillTimer >= 3 then
@@ -386,6 +405,7 @@ function love.update(dt)
         end
         
         
+        
         -- Update dropBoxes
         
         for i = #dropBoxes, 1, -1 do
@@ -397,75 +417,106 @@ function love.update(dt)
             local dropboxWidth, dropboxHeight = dropbox:getWidth() * 0.05, dropbox:getHeight() * 0.05
             local str =d.x .. d.y
             
-            if d.x < playerX + playerWidth / 2 and
-                d.x + dropboxWidth > playerX - playerWidth / 2 and
-                d.y < playerY + playerHeight / 2 and
-                d.y + dropboxHeight > playerY - playerHeight / 2 then
+            if d.x < spaceCraft.x + playerWidth / 2 and
+                d.x + dropboxWidth > spaceCraft.x - playerWidth / 2 and
+                d.y < spaceCraft.y + playerHeight / 2 and
+                d.y + dropboxHeight > spaceCraft.y - playerHeight / 2 then
                 table.remove(dropBoxes, i)
                 coin = coin + math.random(1,5)
                 --coin will be added!
             end
         end
-        
-        -- Update enemies
+        -- Laser firing timer
+        laserTimer = laserTimer - dt
+        -- Enemy Update Logic
         for _, enemy in ipairs(enemies) do
             local distanceToPlayer = math.sqrt((enemy.x - spaceCraft.x)^2 + (enemy.y - spaceCraft.y)^2)
 
             -- State transitions
-            if distanceToPlayer <= 500 and enemy.state ~= "orbiting" then
+            if distanceToPlayer <= 600 and enemy.state ~= "orbiting" then
                 -- Move towards the player
                 enemy.state = "chasing"
                 local dx, dy = spaceCraft.x - enemy.x, spaceCraft.y - enemy.y
                 local length = math.sqrt(dx^2 + dy^2)
                 enemy.dx = dx / length
                 enemy.dy = dy / length
-            end
-            
-            if distanceToPlayer <= 100 then
+
+            elseif distanceToPlayer <= 400 then
                 -- Orbit around the player
                 enemy.state = "orbiting"
                 enemy.orbitAngle = math.atan2(enemy.y - spaceCraft.y, enemy.x - spaceCraft.x)
-                enemy.orbitSpeed = math.pi -- Orbit speed (radians per second)
+                enemy.orbitSpeed = math.pi / 10 -- Orbit speed (radians per second)
+
+            elseif distanceToPlayer > 600 then
+                -- Transition to wandering/patrol state if too far from player
+                if enemy.state ~= "wandering" then
+                    enemy.state = "wandering"
+                    enemy.wanderTimer = math.random(10, 20) -- Time until next direction change
+                    enemy.wanderAngle = math.random() * 2 * math.pi -- Random initial direction
+                    enemy.dx = math.cos(enemy.wanderAngle)
+                    enemy.dy = math.sin(enemy.wanderAngle)
+                end
             end
 
             -- Behavior based on state
             if enemy.state == "chasing" then
+                -- Move toward the player
                 enemy.x = enemy.x + enemy.dx * enemy.speed * dt
                 enemy.y = enemy.y + enemy.dy * enemy.speed * dt
+
             elseif enemy.state == "orbiting" then
                 -- Circular orbit logic
                 enemy.orbitAngle = enemy.orbitAngle + enemy.orbitSpeed * dt
-                enemy.x = spaceCraft.x + 100 * math.cos(enemy.orbitAngle)
-                enemy.y = spaceCraft.y + 100 * math.sin(enemy.orbitAngle)
+                enemy.x = spaceCraft.x + 400 * math.cos(enemy.orbitAngle)
+                enemy.y = spaceCraft.y + 400 * math.sin(enemy.orbitAngle)
+
+            elseif enemy.state == "wandering" then
+                -- Wandering patrol movement
+                enemy.x = enemy.x + enemy.dx * enemy.speed * dt
+                enemy.y = enemy.y + enemy.dy * enemy.speed * dt
+
+                -- Timer for direction change
+                enemy.wanderTimer = enemy.wanderTimer - dt
+                if enemy.wanderTimer <= 0 or enemy.x < 0 or enemy.x > worldWidth or enemy.y < 0 or enemy.y > worldHeight then
+                    -- Pick a new random direction and reset timer
+                    enemy.wanderAngle = math.random() * 2 * math.pi
+                    enemy.dx = math.cos(enemy.wanderAngle)
+                    enemy.dy = math.sin(enemy.wanderAngle)
+                    enemy.wanderTimer = math.random(10, 20)
+                end
+            end
+
+        -- Check collision with player
+
+            -- Fire laser toward player
+            if laserTimer <= 0 and (enemy.state == "chasing" or enemy.state == "orbiting") then
+                local dx, dy = spaceCraft.x - enemy.x, spaceCraft.y - enemy.y
+                local length = math.sqrt(dx^2 + dy^2)
+                table.insert(enemyLasers, {
+                    x = enemy.x,
+                    y = enemy.y,
+                    dx = dx / length,
+                    dy = dy / length,
+                    angle = math.atan2(dy, dx),
+                    speed = 400
+                })
+                laserTimer = laserCooldown
             end
         end
 
-        enemyLaserTimer = enemyLaserTimer + dt
-        if enemyLaserTimer >= 1.5 then
-            for _, enemy in ipairs(enemies) do
-                enemyShootLaser(enemy)
-            end
-            enemyLaserTimer = 0
-        end
-
-        -- Update enemy lasers
+        -- Update lasers
         for i = #enemyLasers, 1, -1 do
             local laser = enemyLasers[i]
-            local length = math.sqrt(laser.dx^2 + laser.dy^2)
-            laser.dx, laser.dy = laser.dx / length, laser.dy / length
-
-            -- Move laser
             laser.x = laser.x + laser.dx * laser.speed * dt
             laser.y = laser.y + laser.dy * laser.speed * dt
-
             -- Check collision with player
             local laserWidth, laserHeight = laserImage:getWidth() * 0.03, laserImage:getHeight() * 0.03
             local playerWidth, playerHeight = player:getWidth() * playerImageScale, player:getHeight() * playerImageScale
 
-            if laser.x < playerX + playerWidth / 2 and
-            laser.x + laserWidth > playerX - playerWidth / 2 and
-            laser.y < playerY + playerHeight / 2 and
-            laser.y + laserHeight > playerY - playerHeight / 2 then
+            if laser.x < spaceCraft.x + playerWidth / 2 and
+            laser.x + laserWidth > spaceCraft.x - playerWidth / 2 and
+            laser.y < spaceCraft.y + playerHeight / 2 and
+            laser.y + laserHeight > spaceCraft.y - playerHeight / 2 then
                 table.remove(enemyLasers, i)
                 shieldRefillTimer = 0
                 if playerShield >0 then
@@ -477,22 +528,19 @@ function love.update(dt)
                     love.event.quit() -- Close the game
                 end
             end
-
-            -- Remove lasers that are off-screen
-            if laser.x < 0 or laser.x > WIDTH or laser.y < 0 or laser.y > HEIGHT then
+            -- Remove lasers if they go offscreen
+            if laser.x < 0 or laser.x > worldWidth or laser.y < 0 or laser.y > worldHeight then
                 table.remove(enemyLasers, i)
             end
         end
-
-
-        -- Update lasers
+        -- Update spacecraft lasers
         for i = #lasers, 1, -1 do
             local laser = lasers[i]
             laser.x = laser.x + laser.dx * laser.speed * dt
             laser.y = laser.y + laser.dy * laser.speed * dt
-        
-            -- Remove laser if it goes off-screen
-            if laser.x < 0 or laser.x > WIDTH or laser.y < 0 or laser.y > HEIGHT then
+
+            -- Remove lasers if offscreen
+            if laser.x < 0 or laser.x > worldWidth or laser.y < 0 or laser.y > worldHeight then
                 table.remove(lasers, i)
             else
                 -- Check collision with enemies
@@ -510,9 +558,9 @@ function love.update(dt)
                         if e.hp < 1 then
                             lastDestroyedX, lastDestroyedY = e.x,e.y
                             table.remove(enemies, j)  -- Remove enemy if HP is depleted
-                            -- if math.random(0,100) > 50 then
-                            --     love.graphics.draw(dropbox,e.x,e.y,0,0.01,0.01)
-                            -- end
+                            if math.random(0,100) > 50 then
+                                love.graphics.draw(dropbox,e.x,e.y,0,0.01,0.01)
+                            end
                         end
                         break  -- Stop checking other enemies for this laser
                     end
@@ -575,19 +623,50 @@ function love.draw()
             -- Draw the game world (background)
         love.graphics.setColor(0.2, 0.2, 0.2) -- Gray background
         love.graphics.rectangle("fill", 0, 0, worldWidth, worldHeight)
-
+        love.graphics.setColor(1, 1, 1) -- Reset Colors
+        -- Draw the spacePort
+        love.graphics.draw(images.spacePortImage, baseZoneX/2, baseZoneY/2,0,0.5,0.5,images.spacePortImage:getWidth()/2,images.spacePortImage:getHeight()/2)
+        --Draw the Portal 
+        love.graphics.draw(images.portalImage,worldWidth-1000,worldHeight-1000,0,0.5,0.5,images.portalImage:getWidth()/2,images.portalImage:getHeight()/2)
         -- Draw the player
-        love.graphics.setColor(1, 1, 1) -- Red player
+        
         love.graphics.draw(player, spaceCraft.x, spaceCraft.y, spaceCraft.angle+math.pi/2, playerImageScale, playerImageScale, player:getWidth() / 2, player:getHeight() / 2)
         -- love.graphics.rectangle("fill", spaceCraft.x, spaceCraft.y, spaceCraft.width, spaceCraft.height)
-
+        -- Draw spacecraft lasers
+        drawSpacecraftLasers()
         -- Draw meteorites
         for _, m in ipairs(meteorites) do
             love.graphics.draw(meteorite, m.x, m.y, 0, m.size, m.size,meteorite:getWidth() / 2, meteorite:getHeight() / 2)
         end
                 -- Draw enemies
         for _, enemy in ipairs(enemies) do
+            local value = 15
+            for i=1,enemy.hp do
+                love.graphics.draw(healthBarRed,(enemy.x+(value*(i-1))-25),enemy.y-45,0,0.1,0.3)
+            end
             love.graphics.draw(enemyImage, enemy.x, enemy.y, 0, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
+        end
+        -- Draw enemy lasers
+        for _, laser in ipairs(enemyLasers) do
+            
+            love.graphics.draw(laserImage, laser.x, laser.y, laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
+        end
+
+        --Draw dropbox
+        if lastDestroyedX>0 and lastDestroyedY>0 and math.random(0,100) > 50 then
+
+            table.insert(dropBoxes, {
+                x = lastDestroyedX,
+                y = lastDestroyedY
+            })
+            
+            
+            lastDestroyedX = -1
+            lastDestroyedY = -1
+            
+        end
+        for _, dropBox in ipairs(dropBoxes) do
+            love.graphics.draw(dropbox,dropBox.x,dropBox.y,0,0.05,0.05,dropbox:getWidth()/2,dropbox:getHeight()/2)
         end
         love.graphics.pop()
 
@@ -613,37 +692,30 @@ function love.draw()
         love.graphics.draw(shieldBar,(playerX-40)+(8*(i-1)),playerY-75,0,0.05,0.3)
         end
 
-        -- Draw lasers
-        for _, laser in ipairs(lasers) do
-            love.graphics.draw(laserImage, laser.x, laser.y,laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
-        end
-        -- Draw enemy lasers
-        for _, laser in ipairs(enemyLasers) do
-            love.graphics.draw(laserImage, laser.x, laser.y, laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
-        end
+        -- -- Draw lasers
+        -- for _, laser in ipairs(lasers) do
+        --     love.graphics.draw(laserImage, laser.x, laser.y,laser.angle, 0.05, 0.05, laserImage:getWidth() / 2, laserImage:getHeight() / 2)
+        -- end
+
         love.graphics.print("Coin: " .. coin, 10, 40)
 
-        --Draw dropbox
-        if lastDestroyedX>0 and lastDestroyedY>0 and math.random(0,100) > 50 then
 
-            table.insert(dropBoxes, {
-                x = lastDestroyedX,
-                y = lastDestroyedY
-            })
-            
-            
-            lastDestroyedX = -1
-            lastDestroyedY = -1
-            
-        end
-        for _, dropBox in ipairs(dropBoxes) do
-            love.graphics.draw(dropbox,dropBox.x,dropBox.y,0,0.05,0.05,dropbox:getWidth()/2,dropbox:getHeight()/2)
-        end
         drawMinimap()
 
         
     end
 
+end
+function drawSpacecraftLasers()
+    for _, laser in ipairs(lasers) do
+        love.graphics.draw(
+            laserImage, 
+            laser.x, laser.y, 
+            laser.angle, 
+            0.05, 0.05, 
+            laserImage:getWidth() / 2, laserImage:getHeight() / 2
+        )
+    end
 end
 function drawInventory()
     -- Inventory background
@@ -693,14 +765,14 @@ function love.mousepressed(x, y, button)
     if button == 1 then -- Left mouse button
         if MainView then
             -- Calculate angle and direction for the laser
-            local angle = math.atan2(y - playerY, x - playerX)
+            local angle = math.atan2(y+cameraY - spaceCraft.y, x+cameraX - spaceCraft.x)
             local dx = math.cos(angle)
             local dy = math.sin(angle)
             local laser_angle = angle
             -- Add a new laser to the lasers table
             table.insert(lasers, {
-                x = playerX,
-                y = playerY,
+                x = spaceCraft.x,
+                y = spaceCraft.y,
                 r = laser_angle,
                 dx = dx,
                 dy = dy,
