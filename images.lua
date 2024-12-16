@@ -14,5 +14,6 @@ images.coinImage = love.graphics.newImage("Images/coin.png")
 images.goldImage = love.graphics.newImage("Images/gold.png")
 
 images.healthBarTick = love.graphics.newImage("Images/greenHpTick.png")
+images.redHpTick = love.graphics.newImage("Images/redHpTick.png")
 images.blueShieldTick = love.graphics.newImage("Images/blueShieldTick.png")
 return images

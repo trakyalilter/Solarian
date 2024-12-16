@@ -747,9 +747,10 @@ function love.draw()
         drawGoldMeteorite()
                 -- Draw enemies
         for _, enemy in ipairs(enemies) do
-            local value = 15
+            local value = 10
             for i=1,enemy.hp do
-                love.graphics.draw(healthBarRed,(enemy.x+(value*(i-1))-25),enemy.y-45,0,0.1,0.3)
+                -- love.graphics.draw(healthBarRed,(enemy.x+(value*(i-1))-25),enemy.y-45,0,0.1,0.3)
+                love.graphics.draw(images.redHpTick,(enemy.x+(value*(i-1))-25),enemy.y-45,0,0.05,0.05)
             end
             love.graphics.draw(enemyImage, enemy.x, enemy.y, math.atan2(enemy.dy, enemy.dx)-math.pi/2, 0.1, 0.1, enemyImage:getWidth() / 2, enemyImage:getHeight() / 2)
         end
